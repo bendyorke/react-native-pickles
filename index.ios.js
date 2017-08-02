@@ -13,11 +13,18 @@ import {
 } from 'react-native';
 
 import {random, times} from 'lodash'
-import * as Pickles from './index.js'
+import * as Pickles from './src'
 
-const LINES = 25
+const LINES = 7
 const POINTS = 5
-const COLORS = ['red', 'green', 'blue', 'purple', 'orange']
+const COLORS = [
+  '#557E8A',
+  '#38AB9F',
+  '#F96040',
+  '#FAB737',
+  '#4998E6',
+  '#418256',
+  '#7986E7']
 
 const randomValues = (length = POINTS) => times(length, () => random(100))
 
@@ -28,23 +35,39 @@ export default class pickles extends Component {
   }
 
   componentDidMount() {
-    setInterval(() => this.setState({
-      values: randomValues(),
-      multi: times(LINES, () => randomValues()),
-    }), 2000)
+    setInterval(() => {
+      this.setState({
+        values: randomValues(),
+        multi: times(LINES, () => randomValues()),
+      })
+    }, 1000)
   }
 
   render() {
     const props = {
+      static: true,
       values: this.state.values,
-      height: 200,
+      animation: 'timing',
       width: 200,
-      animation: 'spring',
+      height: 200,
+      datumProps: ({graph}, i) => {
+        if (graph === 'donut')
+          return {stroke: COLORS[i]}
+        if (graph === 'bar')
+          return {fill: COLORS[i]}
+      },
     }
 
     return (
       <View style={styles.container}>
-        <Pickles.Line {...props} values={this.state.multi} />
+        <Pickles.Graph height={200} width={200} values={this.state.values}>
+          {/* <Pickles.Line values={this.state.values} /> */}
+          <Pickles.Bar   {...props} values={this.state.values} />
+          <Pickles.Donut {...props} values={this.state.values} />
+          <Pickles.Radar values={this.state.values} fill={COLORS[6]}/>
+          <Pickles.Axis count={5} format={n => n + 1}/>
+          <Pickles.Axis vertical count={3} format={n => Math.floor(n)}/>
+        </Pickles.Graph>
       </View>
     );
   }

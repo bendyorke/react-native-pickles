@@ -1,7 +1,9 @@
 import React, {Component, PropTypes} from 'react'
+import * as util from './util'
 
 import {
   random,
+  isFunction,
 } from 'lodash'
 
 import Svg, {
@@ -32,26 +34,67 @@ export default class PicklesBar extends Component {
       values: props.values.map(() => new Animated.Value(0))
     }
 
-    this.state.values[0].addListener(point => (
+    this.tracker = new Animated.Value(0)
+
+    this.tracker.addListener(() => {
       Object.values(this.bars).forEach(this.updateBar)
-    ))
+    })
+  }
+
+  componentDidMount() {
+    const {values: next, animation, delay} = this.props
+    const {values} = this.state
+    const prev = values.map(v => v._value)
+    const animate = Animated[animation]
+
+    setTimeout(() => {
+      const anims = util.collectAnimations(prev, next, {
+        animate,
+        values,
+        tracker: this.tracker,
+      })
+
+      if (anims.length > 1)
+        Animated.parallel(anims).start()
+    }, delay)
   }
 
   componentWillReceiveProps(props) {
     const {values: next, animation} = props
     const {values: prev} = this.props
+    const animate = Animated[animation]
+    const triggered = false
 
-    next.forEach((toValue, index) => {
-      if (toValue !== prev[index])
-        Animated[animation](this.state.values[index], {toValue}).start()
+    const anims = util.collectAnimations(prev, next, {
+      animate,
+      values: this.state.values,
+      tracker: this.tracker,
     })
+
+    if (anims.length > 1)
+      Animated.parallel(anims).start()
   }
+
+  shouldComponentUpdate(props, state) {
+    return util.shouldComponentUpdate(this, props, state)
+  }
+
 
   updateBar = (bar, index) => {
     const {values} = this.state
     const value = values[index] && values[index]._value || 0
     const height = `${-value}`
     bar.setNativeProps({height})
+  }
+
+  getDatumProps = (datum, index) => {
+    const {datumProps} = this.props
+
+    return (
+      isFunction(datumProps)
+        ? datumProps(datum, index)
+        : datumProps || {}
+    )
   }
 
   render() {
@@ -71,6 +114,12 @@ export default class PicklesBar extends Component {
             y={100}
             height={0}
             fill='red'
+            {...this.getDatumProps({
+              size,
+              spacing,
+              x: spacing * index,
+              graph: 'bar',
+            }, index)}
           />
         ))}
       </Svg>

@@ -1,8 +1,10 @@
 import React, {Component, PropTypes} from 'react'
-import {sum} from 'lodash'
+import {isFunction, sum} from 'lodash'
 import * as styles from './Donut.css'
+import * as util from './util'
 
 import Svg, {
+  G,
   Circle,
 } from 'react-native-svg'
 
@@ -15,13 +17,67 @@ const TWO_PI = 2 * Math.PI
 const CIRCUM = 100
 const RADIUS = CIRCUM / TWO_PI
 
+class DonutSegment extends Component {
+  shouldComponentUpdate(props) {
+    if (
+      props.from !== this.props.from ||
+      props.to !== this.props.to ||
+      props.index !== this.props.index
+    ) {
+      return true
+    } else {
+      return false
+    }
+  }
+
+  register = ref => {
+    const {registry, index} = this.props
+    registry && (index || index === 0)
+      ? registry[index] = ref
+      : null
+  }
+
+  render() {
+    const {start, strokeWidth, radius, center, from, to, index, datumProps} = this.props
+    const dashProps = util.generateDash({
+      strokeWidth,
+      radius,
+      start,
+      from,
+      to,
+    })
+
+    const props = isFunction(datumProps)
+      ? datumProps({from, to, graph: 'donut'}, index)
+      : datumProps || {}
+
+    return (
+      <Circle
+        ref={this.register}
+        key={index}
+        cx={center.x}
+        cy={center.y}
+        r={radius}
+        fill='none'
+        stroke='#ccc'
+        strokeWidth={strokeWidth}
+        {...dashProps}
+        {...props}
+      />
+    )
+  }
+}
+
 export default class Donut extends Component {
+  static contextTypes = {
+    picklesPlane: PropTypes.object,
+  }
+
   static propTypes = {
     animation: PropTypes.oneOf(['spring', 'timing']),
     height: PropTypes.number,
-    radius: PropTypes.number, // Percent of standard radius, 0-100
-    renderBackground: PropTypes.func,
-    renderForeground: PropTypes.func,
+    radius: PropTypes.number, // Percent of max radius, 0-100
+    static: PropTypes.bool,
     start: PropTypes.number,  // Percent clockwise around donut, starting from stop, 0-100
     strokeWidth: PropTypes.number,
     total: PropTypes.number,
@@ -32,147 +88,127 @@ export default class Donut extends Component {
   static defaultProps = {
     animation: 'timing',
     radius: 100,
-    renderBackground: C => <C />,
-    renderForeground: (C, i) => <C key={i} />,
     start: 0,
     strokeWidth: 10,
+    radius: 95,
   }
 
-  constructor(props) {
+  constructor(props, context) {
     super(props)
+    const segments = util.calculateArcSegments(props.values, props)
 
+    this.plane = context.picklesPlane
     this.circles = {}
 
     this.state = {
-      height: 0,
-      width: 0,
-      needsLayout: true,
       values: props.values.map(() => new Animated.Value(0)),
-      segments: this.calculateSegments(),
-      _segments: this.calculateSegments(),
+      segments,
+      _segments: segments,
+      center: this.plane.center,
+      radius: (this.plane.radius - ((props.strokeWidth || 0)/2)) * (props.radius / 100),
     }
 
-    this.state.values[0].addListener(point => {
+    this.tracker = new Animated.Value(0)
+
+    this.tracker.addListener(() => {
       this.setState({
-        segments: this.calculateSegments(this.state.values.map(x => x._value)),
+        segments: util.calculateArcSegments(
+          this.state.values.map(x => x._value),
+          this.props,
+        ),
       })
       Object.values(this.circles).forEach(this.updateCircle)
     })
   }
 
+  componentDidMount() {
+    const {values: next, animation, delay} = this.props
+    const {values} = this.state
+    const prev = values.map(v => v._value)
+    const animate = Animated[animation]
+
+    /** Initial animation needs work
+    setTimeout(() => {
+      const anims = util.collectAnimations(prev, next, {
+        animate,
+        values,
+        tracker: this.tracker,
+      })
+
+      if (anims.length > 1)
+        Animated.parallel(anims).start()
+    }, delay)
+    **/
+  }
+
+
   componentWillReceiveProps(props) {
     const {values: next, animation} = props
     const {values: prev} = this.props
+    const animate = Animated[animation]
+    const triggered = false
 
-    next.forEach((toValue, index) => {
-      if (toValue !== prev[index])
-        Animated[animation](this.state.values[index], {toValue}).start()
+    const anims = util.collectAnimations(prev, next, {
+      animate,
+      values: this.state.values,
+      tracker: this.tracker,
     })
+
+    if (anims.length > 1)
+      Animated.parallel(anims).start()
+  }
+
+  shouldComponentUpdate(props, state) {
+    return util.shouldComponentUpdate(this, props, state)
   }
 
   updateCircle = (circle, index) => {
-    const {segments} = this.state
-    const {start: from, end: to} = segments[index]
-    const {start, strokeWidth, radius: radiusAdjustment} = this.props
-    const radius = RADIUS * (radiusAdjustment / 100)
-    const circum = TWO_PI * radius
-    const length = (to - from) * circum
-    const offset = (circum / 4) - (from * circum) - (start * circum)
+    const {segments, radius} = this.state
+    const {start, strokeWidth} = this.props
+    const {from, to} = segments[index]
 
-    circle.setNativeProps({
-      strokeDashoffset: offset,
-      strokeDasharray: [length, circum - length],
+    const dashProps = util.generateDash({
+      strokeWidth,
+      radius,
+      start,
+      from,
+      to,
     })
-  }
 
-  calculateSegments = (values = this.props.values) => {
-    const {total: _total} = this.props
-    const total = _total || sum(values)
-    let start = 0
-
-    return values.map(value => {
-      const percent = value / total
-      const segment = {start, end: start + percent}
-      start += percent
-      return segment
-    })
-  }
-
-  handleLayout = e => {
-    this.setState({
-      height: this.props.height || e.nativeEvent.layout.height,
-      width:  this.props.width  || e.nativeEvent.layout.width,
-      needsLayout: false,
-    })
+    circle.setNativeProps(dashProps)
   }
 
   render() {
-    const {renderBackground, renderForeground} = this.props
-    const {height, width, needsLayout, _segments} = this.state
-
-    if (needsLayout)
-      return <View onLayout={this.handleLayout} />
+    const {backgroundProps} = this.props
+    const {_segments, radius, center} = this.state
 
     return (
-      <View style={[styles.container, {height, width}]}>
-        {this.props.children &&
-          <View style={styles.children}>
-            {this.props.children}
-          </View>
-        }
-        <Svg
-          height={height}
-          width={width}
-          viewBox='0 0 42 42'
-          preserveAspectRatio='xMidyMid meet'
-        >
-          {/* Background */}
-          {renderBackground(this.createCircle(0, 1))}
+      <G>
+        {/* Background */}
+        {backgroundProps && (
+          <DonutSegment
+            from={0}
+            to={1}
+            {...backgroundProps}
+            radius={radius}
+            center={center}
+          />
+        )}
 
-          {/* Foreground elements */}
-          {_segments.map(({start, end}, i) => (
-            renderForeground(this.createCircle(start, end, i), i)
-          ))}
-        </Svg>
-      </View>
+        {/* Foreground elements */}
+        {_segments.map(({from, to}, index) => (
+          <DonutSegment
+            key={index}
+            registry={this.circles}
+            from={from}
+            to={to}
+            index={index}
+            {...this.props}
+            radius={radius}
+            center={center}
+          />
+        ))}
+      </G>
     )
-  }
-
-  /**
-   * renderCircle takes a start and stop percent (between 0 and 1)
-   * and returns a functional stateless component.  This is then passed
-   * to renderForeground/renderBackground and can be used to render a
-   * segment
-   */
-  createCircle = (from, to, index) => {
-    const {start, strokeWidth, radius: radiusAdjustment} = this.props
-    const radius = RADIUS * (radiusAdjustment / 100)
-    const circum = TWO_PI * radius
-    const length = (to - from) * circum
-    const offset = (circum / 4) - (from * circum) - (start * circum)
-
-    const CircleFn = props => (
-      <Circle
-        ref={ref => index || index === 0 ? this.circles[index] = ref : null}
-        key={index}
-        cx={21}
-        cy={21}
-        r={radius}
-        fill='none'
-        stroke='#ccc'
-        strokeWidth={strokeWidth}
-        strokeDashoffset={offset}
-        strokeDasharray={[length, circum - length]}
-        {...props}
-      />
-    )
-
-    CircleFn.start  = offset
-    CircleFn.stop   = offset + length
-    CircleFn.length = length
-    CircleFn.circumference = circum
-
-    return CircleFn
-
   }
 }

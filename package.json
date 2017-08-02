@@ -1,7 +1,7 @@
 {
 	"name": "pickles",
 	"version": "0.0.1",
-	"main": "index.js",
+	"main": "src/index.js",
 	"scripts": {
 		"start": "node node_modules/react-native/local-cli/cli.js start",
 		"test": "jest"
@@ -9,8 +9,8 @@
 	"dependencies": {
 		"lodash": "^4.17.4",
 		"react": "16.0.0-alpha.12",
-		"react-native": "^0.45.1",
-		"react-native-svg": "^5.2.0"
+		"react-native": "0.46.2",
+		"react-native-svg": "^5.3.2"
 	},
 	"devDependencies": {
 		"babel-jest": "20.0.3",
